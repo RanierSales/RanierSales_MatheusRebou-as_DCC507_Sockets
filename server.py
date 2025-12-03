@@ -15,7 +15,10 @@ if not os.path.exists(HISTORY_DIR):
     os.makedirs(HISTORY_DIR)
 
 # Armazena clientes conectados
+
 clients = {}   # {username: socket}
+SHARED_LOCK = threading.Lock()
+FILE_LOCK = threading.Lock()
 
 
 # ------------------------------------------------
@@ -67,22 +70,23 @@ def deliver_offline_messages(username, conn):
     """Envia mensagens guardadas para o usuário quando ele loga."""
     new_lines = []
 
-    with open(MESSAGES_FILE, "r", encoding="utf-8") as f:
-        lines = f.readlines()
+    with FILE_LOCK:
+        with open(MESSAGES_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
 
-    for line in lines:
-        sender, receiver, content, timestamp, delivered = line.strip().split(";")
+        for line in lines:
+            sender, receiver, content, timestamp, delivered = line.strip().split(";")
 
-        if receiver == username and delivered == "0":
-            conn.send(f"[OFFLINE] {sender}: {content}\n".encode())
-            # marcar como entregue
-            new_lines.append(f"{sender};{receiver};{content};{timestamp};1\n")
-        else:
-            new_lines.append(line)
+            if receiver == username and delivered == "0":
+                conn.send(f"[OFFLINE] {sender}: {content}\n".encode())
+                # marcar como entregue
+                new_lines.append(f"{sender};{receiver};{content};{timestamp};1\n")
+            else:
+                new_lines.append(line)
 
-    # regrava o arquivo todo
-    with open(MESSAGES_FILE, "w", encoding="utf-8") as f:
-        f.writelines(new_lines)
+        # regrava o arquivo todo
+        with open(MESSAGES_FILE, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
 
 
 # ------------------------------------------------
@@ -110,7 +114,8 @@ def handle_client(conn, addr):
 
         conn.send("Login realizado com sucesso!\n".encode())
 
-    clients[username] = conn
+    with SHARED_LOCK:
+        clients[username] = conn
 
     # Entregar mensagens offline
     deliver_offline_messages(username, conn)
@@ -146,13 +151,14 @@ def handle_client(conn, addr):
                     conn.send("Esse usuário não existe.\n".encode())
                     continue
 
-                if dest in clients:
-                    # destinatário online
-                    clients[dest].send(f"{username}: {content}\n".encode())
-                    save_message(username, dest, content, 1)
-                else:
-                    # offline
-                    save_message(username, dest, content, 0)
+                with SHARED_LOCK:
+                    if dest in clients:
+                        # destinatário online
+                        clients[dest].send(f"{username}: {content}\n".encode())
+                        save_message(username, dest, content, 1)
+                    else:
+                        # offline
+                        save_message(username, dest, content, 0)
 
                 continue
 
@@ -173,7 +179,8 @@ def handle_client(conn, addr):
             break
 
     # finalização
-    del clients[username]
+    with SHARED_LOCK:
+        del clients[username]
     conn.close()
     print(f"[SERVIDOR] {username} desconectou.")
 
