@@ -2,7 +2,7 @@ import socket
 import threading
 import tkinter as tk
 
-HOST = "127.0.0.1"
+HOST = "10.11.189.181"
 PORT = 5000
 CLIENT_STATE = 0
 RECV_BUFFER = b''

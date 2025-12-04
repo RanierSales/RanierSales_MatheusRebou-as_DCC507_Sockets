@@ -26,6 +26,12 @@ FILE_LOCK = threading.Lock()
 # ------------------------------------------------
 
 def user_exists(username):
+    """
+    Vai verificar se um nome de usuario (username) esta registado no arquivo USERS_FILE
+    
+    :param username: Nome de usuario a ser procurado (string)
+    :return: True se o usuário for encontrado, False caso contrario (boolean)
+    """
     with open(USERS_FILE, "r", encoding="utf-8") as f:
         for line in f:
             name, *_ = line.strip().split(";")
@@ -35,6 +41,13 @@ def user_exists(username):
 
 
 def verify_login(username, password):
+    """
+    Vai verificar se a combinacao de um nome de usuario e senha estao correspondendo a um usuario registrado no arquivo USERS_FILE
+    
+    :param username: Nome do usuario a ser verificado (string)
+    :param password: Senha a ser verificada (string)
+    :return: True se as credenciais estiverem corretas, False se nao estiverem (boolean)
+    """
     with open(USERS_FILE, "r", encoding="utf-8") as f:
         for line in f:
             name, pw = line.strip().split(";")
@@ -49,6 +62,15 @@ def save_user(username, password):
 
 
 def save_message(sender, receiver, content, delivered):
+    """
+    Onde vai ser feito o registro no arquivo central MESSAGES_FILE.
+    chama 'save_history' para registrar a mensagem em ambos os usuarios.
+    
+    :param sender: nome do remetente (string)
+    :param receiver: nome do destinatário (string)
+    :param content: conteúdo da mensagem (string)
+    :param delivered: flag que indica se a mensagem foi entregue (1) ou nao (0) (int/string)
+    """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(MESSAGES_FILE, "a", encoding="utf-8") as f:
         f.write(f"{sender};{receiver};{content};{timestamp};{delivered}\n")
@@ -67,7 +89,13 @@ def save_history(username, text):
 
 
 def deliver_offline_messages(username, conn):
-    """Envia mensagens guardadas para o usuário quando ele loga."""
+    """
+    Envia mensagens guardadas (delivered='0') para o usuario quando ele logo.
+    Atualiza o MESSAGES_FILE, marcando as mensagens como entregues (delivered='1')
+    
+    :param username: nome do usário que acabou de logar (string)
+    :param conn: objeto socket conectado ao cliente (socket.socket)
+    """
     new_lines = []
 
     with FILE_LOCK:
@@ -230,7 +258,7 @@ def handle_client(conn, addr):
 # ------------------------------------------------
 def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("127.0.0.1", 5000))
+    server.bind(("10.11.189.181", 5000))
     server.listen()
 
     print("[SERVIDOR] Aguardando conexões...")
