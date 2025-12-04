@@ -21,6 +21,12 @@ message_entry = tk.Entry(root, width=50)
 message_entry.pack(padx=10, pady=5)
 
 def send_message_trigger(event=None):
+    """
+    É um gatilho que vincula o evento de clique do botao 'Enviar' ou
+    o pressionar da tecla <Returns> (Enter) a logica principal de envio
+    
+    :param event: Objeto de evento do Tkinter
+    """
     send_message()
 
 # Como fazemos a tecla Enter ser reconhecida para envio
@@ -31,6 +37,13 @@ send_button.pack(padx=10, pady=5)
 
 
 def receive_messages(sock):
+    """
+    Vai ser rodado numa thread separada, assim vai escutar o socket continuamente,
+    receber dados do servidor e processar o protocolo da mensagem. Isso vai ser perdurar
+    até que a conexão seja cortada.
+    
+    :param sock: O objeto socket conectado ao servidor
+    """
     global root, CLIENT_STATE, RECV_BUFFER
 
     while True:
@@ -76,6 +89,14 @@ def receive_messages(sock):
             break
 
 def send_message():
+    """
+    Se responsabilizara por capturar nosso texto da caixa de entrada, codificando ele com o delimitador (\n)
+    e vai enviar enviar ele para o servidor via socket.
+
+    Outro ponto: lida com exibição local das mensagens de chat (LOGIN_OK) e os comandos especiais como /sair.
+
+    :return: Nao retorna valor
+    """
     global sock, message_entry, CLIENT_STATE
     message = message_entry.get()
 
@@ -104,6 +125,14 @@ def send_message():
     message_entry.delete(0, tk.END)
 
 def display_message(message):
+    """
+    Responsavel por atualizar o widget de historico de chat (Text).
+
+    Outro ponto: só é chamada via root.after(0, ...) para assegurar que a atualizacao
+    ocorra na Thread Principal do Tkinter.
+    
+    :param message: String a ser exibida
+    """
     global chat_history
     chat_history.config(state=tk.NORMAL)
     chat_history.insert(tk.END, message + "\n")

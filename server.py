@@ -75,7 +75,12 @@ def deliver_offline_messages(username, conn):
             lines = f.readlines()
 
         for line in lines:
-            sender, receiver, content, timestamp, delivered = line.strip().split(";")
+            parts = line.strip().split(";")
+
+            if len(parts) != 5:
+                continue
+
+            sender, receiver, content, timestamp, delivered = parts
 
             if receiver == username and delivered == "0":
                 conn.send(f"[OFFLINE] {sender}: {content}\n".encode())
@@ -151,7 +156,7 @@ def handle_client(conn, addr):
                         conn.send("/LOGIN_OK Login realizado com sucesso!\n".encode())
                         auth_state = "LOGGED_IN"
                     
-                    # Squando logamos com sucesso, mostramos as opcoes do menu
+                    # Quando logamos com sucesso, mostramos as opcoes do menu
                     if auth_state == "LOGGED_IN":
                         with SHARED_LOCK:
                             clients[username] = conn
@@ -161,6 +166,7 @@ def handle_client(conn, addr):
                         conn.send("/msg usuario mensagem\n".encode())
                         conn.send("/history usuario\n".encode())
                         conn.send("/sair\n\n".encode())
+
                         continue
 
                 if auth_state == "LOGGED_IN":
@@ -201,7 +207,11 @@ def handle_client(conn, addr):
 
                         continue
 
+        except (ConnectionResetError, BrokenPipeError):
+            print(f"[SERVIDOR DIAGNÓSTICO] Conexão perdida com {username}. Cliente fechou o socket.")
+            break
         except Exception as e:
+            print(f"[SERVIDOR ERRO FATAL] Erro inesperado: {e}")
             break
 
     # finalização
