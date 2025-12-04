@@ -7,7 +7,7 @@ import os
 # ARQUIVOS DO SISTEMA
 # ---------------------------
 USERS_FILE = "usuarios.txt"
-MESSAGES_FILE = "menssagens.txt"
+MESSAGES_FILE = "mensagens.txt"
 HISTORY_DIR = "historico"
 
 # Se não existir, cria
@@ -15,8 +15,8 @@ if not os.path.exists(HISTORY_DIR):
     os.makedirs(HISTORY_DIR)
 
 # Armazena clientes conectados
-
 clients = {}   # {username: socket}
+
 SHARED_LOCK = threading.Lock()
 FILE_LOCK = threading.Lock()
 
@@ -88,101 +88,131 @@ def deliver_offline_messages(username, conn):
         with open(MESSAGES_FILE, "w", encoding="utf-8") as f:
             f.writelines(new_lines)
 
+def recv_line(conn):
+    """Lê do socket ate encontrar o caractere de nova linha (\\n)"""
+    buffer = b''
+    while True:
+        chunk = conn.recv(1)
+        if not chunk:
+            return ""
+        
+        buffer += chunk
+
+        if buffer.endswith(b'\n'):
+            return buffer.decode().strip()
+
 
 # ------------------------------------------------
 # Lógica principal do cliente
 # ------------------------------------------------
 def handle_client(conn, addr):
     print(f"[SERVIDOR] Conexão recebida de {addr}")
+    
+    username = None
+    password = None
+    auth_state = "USER_PROMPT" # USER_PROMPT -> PASS_PROMPT -> LOGGED_IN
 
-    # LOGIN / REGISTRO
-    conn.send("Digite seu usuário: ".encode())
-    username = conn.recv(1024).decode().strip()
+    conn.send("/PROMPT_USER Digite seu usuário: \n".encode())
 
-    conn.send("Digite sua senha: ".encode())
-    password = conn.recv(1024).decode().strip()
+    client_buffer = b''
 
-    if not user_exists(username):
-        # registrar automaticamente
-        save_user(username, password)
-        conn.send("Usuário criado com sucesso!\n".encode())
-    else:
-        if not verify_login(username, password):
-            conn.send("Senha incorreta. Conexão encerrada.\n".encode())
-            conn.close()
-            return
-
-        conn.send("Login realizado com sucesso!\n".encode())
-
-    with SHARED_LOCK:
-        clients[username] = conn
-
-    # Entregar mensagens offline
-    deliver_offline_messages(username, conn)
-
-    conn.send("\nComandos disponíveis:\n".encode())
-    conn.send("/msg usuario mensagem\n".encode())
-    conn.send("/history usuario\n".encode())
-    conn.send("/sair\n\n".encode())
-
-    # LOOP PRINCIPAL
     while True:
         try:
-            data = conn.recv(1024).decode().strip()
-
-            if not data:
+            data_chunk = conn.recv(1024)
+            if not data_chunk:
                 break
+            client_buffer += data_chunk
 
-            # Comando de sair
-            if data == "/sair":
-                conn.send("Desconectado.\n".encode())
-                break
+            while b'\n' in client_buffer:
+                message_end_index = client_buffer.find(b'\n')
+                full_message = client_buffer[:message_end_index + 1]
+                client_buffer = client_buffer[message_end_index + 1:]
+                message = full_message.decode().strip()
 
-            # Enviar mensagem
-            if data.startswith("/msg "):
-                parts = data.split(" ", 2)
-                if len(parts) < 3:
-                    conn.send("Uso: /msg usuario mensagem\n".encode())
+                if auth_state == "USER_PROMPT":
+                    username = message
+                    # Se o usuario existir, vamos passar para a senha
+                    conn.send("/PROMPT_PASS Digite sua senha: \n".encode())
+                    auth_state = "PASS_PROMPT"
                     continue
 
-                _, dest, content = parts
+                elif auth_state == "PASS_PROMPT":
+                    password = message
 
-                if not user_exists(dest):
-                    conn.send("Esse usuário não existe.\n".encode())
-                    continue
-
-                with SHARED_LOCK:
-                    if dest in clients:
-                        # destinatário online
-                        clients[dest].send(f"{username}: {content}\n".encode())
-                        save_message(username, dest, content, 1)
+                    if not user_exists(username):
+                        save_user(username, password)
+                        conn.send("/LOGIN_OK Usuário criado com sucesso!\n".encode())
+                        auth_state = "LOGGED_IN"
+                    elif not verify_login(username, password):
+                        conn.send("/LOGIN_FAIL Senha incorreta. Conexão encerrada.\n".encode())
+                        conn.close()
+                        return
                     else:
-                        # offline
-                        save_message(username, dest, content, 0)
+                        conn.send("/LOGIN_OK Login realizado com sucesso!\n".encode())
+                        auth_state = "LOGGED_IN"
+                    
+                    # Squando logamos com sucesso, mostramos as opcoes do menu
+                    if auth_state == "LOGGED_IN":
+                        with SHARED_LOCK:
+                            clients[username] = conn
+                        deliver_offline_messages(username, conn)
 
-                continue
+                        conn.send("\nComandos disponíveis:\n".encode())
+                        conn.send("/msg usuario mensagem\n".encode())
+                        conn.send("/history usuario\n".encode())
+                        conn.send("/sair\n\n".encode())
+                        continue
 
-            # Histórico
-            if data.startswith("/history "):
-                _, dest = data.split(" ", 1)
-                file = f"{HISTORY_DIR}/history_{username}.txt"
+                if auth_state == "LOGGED_IN":
+                    
+                    if message == "/sair":
+                        conn.send("Desconectado.\n".encode())
+                        break
+                    
+                    if message.startswith("/msg "):
+                        parts = message.split(" ", 2)
+                        if len(parts) < 3:
+                            conn.send("Uso: /msg usuario mensagem\n".encode())
+                            continue
+                        
+                        _, dest, content = parts
 
-                if not os.path.exists(file):
-                    conn.send("Nenhum histórico encontrado.\n".encode())
-                else:
-                    with open(file, "r", encoding="utf-8") as f:
-                        conn.send(f.read().encode())
+                        if not user_exists(dest):
+                            conn.send("Esse usuário não existe.\n".encode())
+                            continue
 
-                continue
+                        with SHARED_LOCK:
+                            if dest in clients:
+                                clients[dest].send(f"{username}: {content}\n".encode())
+                                save_message(username, dest, content, 1)
+                            else:
+                                save_message(username, dest, content, 0)
+                        
+                        continue
+                    if message.startswith("/history "):
+                        _, dest = message.split(" ", 1)
+                        file = f"{HISTORY_DIR}/history_{username}.txt"
 
-        except:
+                        if not os.path.exists(file):
+                            conn.send("Nenhum histórico encontrado.\n".encode())
+                        else:
+                            with open(file, "r", encoding="utf-8") as f:
+                                conn.send(f.read().encode())
+
+                        continue
+
+        except Exception as e:
             break
 
     # finalização
-    with SHARED_LOCK:
-        del clients[username]
+    if username and username in clients:
+        with SHARED_LOCK:
+            del clients[username]
     conn.close()
-    print(f"[SERVIDOR] {username} desconectou.")
+    if username:
+        print(f"[SERVIDOR] {username} desconectou.")
+    else:
+        print(f"[SERVIDOR] Conexão desconhecida encerrada.")
 
 
 # ------------------------------------------------
